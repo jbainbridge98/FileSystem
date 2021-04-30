@@ -22,6 +22,8 @@
 #include "block.h"
 #include "tfs.h"
 
+#DEFINE I_INVALID 0 // an unlinked file will have the inode value of 0
+
 char diskfile_path[PATH_MAX];
 
 // Declare your in-memory data structures here
