@@ -22,8 +22,6 @@
 #include "block.h"
 #include "tfs.h"
 
-#define I_INVALID 0 // an unlinked file will have the inode value of 0
-
 char diskfile_path[PATH_MAX];
 
 // Declare your in-memory data structures here
@@ -34,7 +32,7 @@ char diskfile_path[PATH_MAX];
 int get_avail_ino() {
 
 	// Step 1: Read inode bitmap from disk
-
+	read(diskfile, );
 	// Step 2: Traverse inode bitmap to find an available slot
 
 	// Step 3: Update inode bitmap and write to disk
@@ -45,6 +43,7 @@ int get_avail_ino() {
 /*
  * Get available data block number from bitmap
  */
+ //later
 int get_avail_blkno() {
 
 	// Step 1: Read data block bitmap from disk
@@ -59,6 +58,7 @@ int get_avail_blkno() {
 /*
  * inode operations
  */
+ //later
 int readi(uint16_t ino, struct inode *inode) {
 
   // Step 1: Get the inode's on-disk block number
@@ -69,7 +69,7 @@ int readi(uint16_t ino, struct inode *inode) {
 
 	return 0;
 }
-
+//later
 int writei(uint16_t ino, struct inode *inode) {
 
 	// Step 1: Get the block number where this inode resides on disk
@@ -85,6 +85,7 @@ int writei(uint16_t ino, struct inode *inode) {
 /*
  * directory operations
  */
+ //later
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
 
   // Step 1: Call readi() to get the inode using ino (inode number of current directory)
@@ -96,7 +97,7 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 
 	return 0;
 }
-
+//later
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
 
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
@@ -113,7 +114,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 
 	return 0;
 }
-
+//later
 int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 
 	// Step 1: Read dir_inode's data block and checks each directory entry of dir_inode
@@ -128,6 +129,7 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 /*
  * namei operation
  */
+ //later
 int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
@@ -187,7 +189,9 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 	}
   // Step 1b: If disk file is found, just initialize in-memory data structures
   // and read superblock from disk
-	
+
+	puts("SHEEEEEEEEEEEEEEEEEESH PEEP THE DRIP CUH ð³ð³ð³ð³ð³ååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååå");
+
 	return NULL;
 }
 
@@ -209,7 +213,20 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 
 	// Step 1: call get_node_by_path() to get inode from path
 
+	int icur = get_node_by_path(path);
+	if (icur == 0){
+		return -1;
+	}
+
 	// Step 2: fill attribute of file into stbuf from inode
+
+		struct inode *ncur;
+
+		if (readi(icur, ncur)){
+			return -1;
+		}
+
+		memcpy(stbuf, ncur->vstat; sizeof(struct stat));
 
 		stbuf->st_mode   = S_IFDIR | 0755;
 		stbuf->st_nlink  = 2;
@@ -221,7 +238,10 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 static int tfs_opendir(const char *path, struct fuse_file_info *fi) {
 
 	// Step 1: Call get_node_by_path() to get inode from path
-
+	int icur = get_node_by_path(path);
+	if (icur == 0){
+		return -1;
+	}
 	// Step 2: If not find, return -1
 
     return 0;
@@ -230,13 +250,18 @@ static int tfs_opendir(const char *path, struct fuse_file_info *fi) {
 static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
 
 	// Step 1: Call get_node_by_path() to get inode from path
+	int icur = get_node_by_path(path);
+	if (icur == 0){
+		return -1;
+	}
 
 	// Step 2: Read directory entries from its data blocks, and copy them to filler
+
 
 	return 0;
 }
 
-
+//later
 static int tfs_mkdir(const char *path, mode_t mode) {
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
@@ -254,7 +279,7 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 
 	return 0;
 }
-
+//later
 static int tfs_rmdir(const char *path) {
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
@@ -277,7 +302,7 @@ static int tfs_releasedir(const char *path, struct fuse_file_info *fi) {
 	// But DO NOT DELETE IT!
     return 0;
 }
-
+//later
 static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
@@ -298,7 +323,10 @@ static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) 
 static int tfs_open(const char *path, struct fuse_file_info *fi) {
 
 	// Step 1: Call get_node_by_path() to get inode from path
-
+	int icur = get_node_by_path(path);
+	if (icur == 0){
+		return -1;
+	}
 	// Step 2: If not find, return -1
 
 	return 0;
@@ -328,7 +356,7 @@ static int tfs_write(const char *path, const char *buffer, size_t size, off_t of
 	// Note: this function should return the amount of bytes you write to disk
 	return size;
 }
-
+//later
 static int tfs_unlink(const char *path) {
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
