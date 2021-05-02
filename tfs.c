@@ -32,27 +32,61 @@ char diskfile_path[PATH_MAX];
 int get_avail_ino() {
 
 	// Step 1: Read inode bitmap from disk
-	read(diskfile, );
+
+	bitmap_t *bitmap;
+	bio_read(sb->i_bitmap_blk, bitmap);
+	int index = -1;
+
 	// Step 2: Traverse inode bitmap to find an available slot
+
+	for (int i = 0; i < MAX_INUM; i++){
+		if (get_bitmap(bitmap, i) == 0){
+			index = i;
+			break;
+		}
+	}
 
 	// Step 3: Update inode bitmap and write to disk
 
-	return 0;
+	if (index == -1){
+		return -1;
+	} else {
+		set_bitmap(bitmap, index);
+		bio_write(sb->i_bitmap_blk, bitmap);
+	}
+
+	return index;
 }
 
 /*
  * Get available data block number from bitmap
  */
- //later
 int get_avail_blkno() {
 
 	// Step 1: Read data block bitmap from disk
 
+	bitmap_t *bitmap;
+	bio_read(sb->d_bitmap_blk, bitmap);
+
 	// Step 2: Traverse data block bitmap to find an available slot
+
+	for(int i = 0; i < MAX_DNUM; i++){
+			if(get_bitmap(bitmap, i) == 0){
+				int index = i;
+				break;
+			}
+	}
 
 	// Step 3: Update data block bitmap and write to disk
 
-	return 0;
+	if(index = -1){
+		return -1;
+	}else{
+		set_bitmap(bitmap, index);
+		bio_write(sb->d_bitmap_blk, bitmap);
+	}
+
+	return index;
 }
 
 /*
@@ -63,9 +97,29 @@ int readi(uint16_t ino, struct inode *inode) {
 
   // Step 1: Get the inode's on-disk block number
 
+	int size = sizeof(struct inode) * ino;
+	int block;
+
+	if (size % BLOCK_SIZE == 0){
+		block = size/BLOCKSIZE;
+	} else {
+		block = size/BLOCKSIZE + 1;
+	}
+
+	block += 3;
+
   // Step 2: Get offset of the inode in the inode on-disk block
 
+	int offset = size%BLOCKSIZE;
+
   // Step 3: Read the block from disk and then copy into inode structure
+
+	struct inode *blk = malloc(BLOCKSIZE);
+	bio_read(block, blk);
+
+	//blk[offset] // inode
+
+	memcpy(blk[offset], inode, sizeof(stuct inode));
 
 	return 0;
 }
@@ -74,9 +128,24 @@ int writei(uint16_t ino, struct inode *inode) {
 
 	// Step 1: Get the block number where this inode resides on disk
 
+	int size = sizeof(struct inode) * ino;
+	int block;
+
+	if (size % BLOCK_SIZE == 0){
+		block = size/BLOCKSIZE;
+	} else {
+		block = size/BLOCKSIZE + 1;
+	}
+
+	block += 3;
+
 	// Step 2: Get the offset in the block where this inode resides on disk
 
+	int offset = size%BLOCKSIZE;
+
 	// Step 3: Write inode to disk
+
+	bio_write(block, inode);
 
 	return 0;
 }
@@ -133,6 +202,7 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
+
 	// Note: You could either implement it in a iterative way or recursive way
 
 	return 0;
@@ -151,14 +221,39 @@ int tfs_mkfs() {
 	sb->max_inum = MAX_INUM;
 	sb->max_dnum = MAX_DNUM;
 
+
+
 	// initialize inode bitmap
-	i_bitmap = diskfile+sizeof(struct superblock);  // needs to be edited; diskfile doesnt point to region in memory; logic is correct
+
+	i_bitmap = calloc(MAX_INUM/8, MAX_INUM/8);  // needs to be edited; diskfile doesnt point to region in memory; logic is correct
+
 	// initialize data block bitmap
-	d_bitmap = diskfile+sizeof(struct superblock)+MAX_INUM;
-	sb->i_bitmap_blk = i_bitmap;
-	sb->d_bitmap_blk = d_bitmap;
-	sb->i_start_blk = d_bitmap+MAX_DNUM/8;
-	sb->d_start_blk = sb->i_start_blk + sizeof(struct inode)*MAX_INUM;
+
+	d_bitmap = calloc(MAX_DNUM/8, MAX_DNUM/8);
+	set_bitmap(d_bitmap, 0); // setting bitmap for superblock
+
+	int iblk_size;
+	int dblk_size;
+
+	if ((MAX_INUM/8) % BLOCK_SIZE == 0){
+		iblk_size = (MAX_INUM/8) / BLOCK_SIZE;
+	} else {
+		iblk_size = 1 + (MAX_INUM/8) / BLOCK_SIZE;
+	}
+
+	if ((MAX_DNUM/8) % BLOCK_SIZE == 0){
+		dblk_size = (MAX_DNUM/8) / BLOCK_SIZE;
+	} else {
+		dblk_size = 1 + (MAX_DNUM/8) / BLOCK_SIZE;
+	}
+
+	sb->i_bitmap_blk = ;
+	sb->d_bitmap_blk = ;
+	sb->i_start_blk = ;
+	sb->d_start_blk = ;
+
+	bio_write(0, sb); // write superblock to filesystem; 0th block
+
 	// update bitmap information for root directory
 
 	for (int i = 0; i < MAX_INUM; i++){
@@ -190,7 +285,8 @@ static void *tfs_init(struct fuse_conn_info *conn) {
   // Step 1b: If disk file is found, just initialize in-memory data structures
   // and read superblock from disk
 
-	puts("SHEEEEEEEEEEEEEEEEEESH PEEP THE DRIP CUH ð³ð³ð³ð³ð³ååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååååå");
+	bio_read(0, sb);
+
 
 	return NULL;
 }
@@ -226,7 +322,7 @@ static int tfs_getattr(const char *path, struct stat *stbuf) {
 			return -1;
 		}
 
-		memcpy(stbuf, ncur->vstat; sizeof(struct stat));
+		memcpy(stbuf, &ncur->vstat, sizeof(struct stat));
 
 		stbuf->st_mode   = S_IFDIR | 0755;
 		stbuf->st_nlink  = 2;
@@ -254,7 +350,6 @@ static int tfs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, o
 	if (icur == 0){
 		return -1;
 	}
-
 	// Step 2: Read directory entries from its data blocks, and copy them to filler
 
 
@@ -266,9 +361,16 @@ static int tfs_mkdir(const char *path, mode_t mode) {
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
 
+	char *base = basename(path);
+	char *dir = dirname(path);
+
 	// Step 2: Call get_node_by_path() to get inode of parent directory
 
+	int icur = get_node_by_path(path, )
+
 	// Step 3: Call get_avail_ino() to get an available inode number
+
+	int inum = get_avail_ino();
 
 	// Step 4: Call dir_add() to add directory entry of target directory to parent directory
 
