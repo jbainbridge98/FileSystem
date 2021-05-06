@@ -313,13 +313,22 @@ static void *tfs_init(struct fuse_conn_info *conn) {
 	// Step 1a: If disk file is not found, call mkfs
 	if(dev_open(diskfile) == -1){
 		tfs_mkfs();
-	}
+	} else {
   // Step 1b: If disk file is found, just initialize in-memory data structures
   // and read superblock from disk
 
-	bio_read(0, sb);
-	bio_read(1, i_bitmap);
-	bio_read(2, d_bitmap);
+    ibitmap = malloc(BLOCK_SIZE);
+    dbitmap = malloc(BLOCK_SIZE);
+    sb = malloc(BLOCK_SIZE);
+
+    bio_read(0, sb);
+    if (sb->magic_num != MAGIC_NUM){
+      puts("MAGIC_NUM Mismatch");
+      exit(1);
+    }
+    bio_read(1, i_bitmap);
+    bio_read(2, d_bitmap);
+  }
 
 	return NULL;
 }
@@ -328,13 +337,19 @@ static void tfs_destroy(void *userdata) {
 
 	// Step 1: De-allocate in-memory data structures
 
+  bio_write(0, sb);
+  bio_write(sb->i_bitmap_blk, i_bitmap);
+  bio_write(sb->d_bitmap_blk, d_bitmap);
+
+
+
 	free(sb);
 	free(i_bitmap);
 	free(d_bitmap);
 
 	// Step 2: Close diskfile
 
-	close(diskfile_path);
+	dev_close();
 
 }
 
@@ -458,13 +473,16 @@ static int tfs_create(const char *path, mode_t mode, struct fuse_file_info *fi) 
 static int tfs_open(const char *path, struct fuse_file_info *fi) {
 
 	// Step 1: Call get_node_by_path() to get inode from path
-	int icur = get_node_by_path(path);
-	if (icur == 0){
-		return -1;
-	}
-	// Step 2: If not find, return -1
 
-	return 0;
+  struct inode *inode = (struct inode *)malloc(sizeof(struct inode));
+  if (get_node_by_path(path, inode) == 0){
+    free(inode);
+    return 0;
+  } else {
+    free(inode);
+    return -1;
+  }
+
 }
 
 static int tfs_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
@@ -496,7 +514,12 @@ static int tfs_unlink(const char *path) {
 
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
 
+  char *dir_name = dirname(path);
+  char *base_name = basename(path);
+
 	// Step 2: Call get_node_by_path() to get inode of target file
+
+  struct inode *inode = malloc(sizeof(struct inode));
 
 	// Step 3: Clear data block bitmap of target file
 
