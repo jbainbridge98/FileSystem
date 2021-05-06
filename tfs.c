@@ -24,6 +24,11 @@
 
 char diskfile_path[PATH_MAX];
 
+bitmap_t ibitmap; // in memory inode bitmap
+bitmap_t dbitmap; // in memory data bitmap
+struct superblock sb; // in memory superblock
+struct inode *inodes[MAX_INUM+1]; // in memory inode array; +1 for 0th inode (invalid)
+
 // Declare your in-memory data structures here
 
 /*
@@ -31,51 +36,60 @@ char diskfile_path[PATH_MAX];
  */
 int get_avail_ino() {
 
-	// Step 1: Read inode bitmap from disk
+ 	// Step 1: Read inode bitmap from disk
 
-	bitmap_t *bitmap;
-	bio_read(sb->i_bitmap_blk, bitmap);
-	int index = -1;
+ 	bio_read(sb->i_bitmap_blk, ibitmap);
 
-	// Step 2: Traverse inode bitmap to find an available slot
+ 	// Step 2: Traverse inode bitmap to find an available slot
 
-	for (int i = 0; i < MAX_INUM; i++){
-		if (get_bitmap(bitmap, i) == 0){
-			index = i;
-			break;
-		}
-	}
+ 	int stat = -1;
 
-	// Step 3: Update inode bitmap and write to disk
+ 	for (int i = 0; i < MAX_INUM; i++){
+ 		if (get_bitmap(i_bitmap_blk, i) == 0){
+ 			stat = i;
+ 			break;
+ 		}
+ 	}
 
-	if (index == -1){
-		return -1;
-	} else {
-		set_bitmap(bitmap, index);
-		bio_write(sb->i_bitmap_blk, bitmap);
-	}
+ 	// Step 3: Update inode bitmap and write to disk
 
-	return index;
-}
+ 	if (stat != -1){
+ 		set_bitmap(i_bitmap_blk, i);
+ 		bio_write(sb->i_bitmap_blk, ibitmap);
+ 	}
 
-/*
- * Get available data block number from bitmap
- */
+ 	return stat;
+ }
+
+ /*
+  * Get available data block number from bitmap
+  */
 int get_avail_blkno() {
 
-	// Step 1: Read data block bitmap from disk
+ 	// Step 1: Read data bitmap from disk
 
-	bitmap_t *bitmap;
-	bio_read(sb->d_bitmap_blk, bitmap);
+ 	bio_read(sb->d_bitmap_blk, dbitmap);
 
-	// Step 2: Traverse data block bitmap to find an available slot
+ 	// Step 2: Traverse data bitmap to find an available slot
 
-	for(int i = 0; i < MAX_DNUM; i++){
-			if(get_bitmap(bitmap, i) == 0){
-				int index = i;
-				break;
-			}
-	}
+ 	int stat = -1;
+
+ 	for (int i = 0; i < MAX_DNUM; i++){
+ 		if (get_bitmap(d_bitmap_blk, i) == 0){
+ 			stat = i;
+ 			break;
+ 		}
+ 	}
+
+ 	// Step 3: Update inode bitmap and write to disk
+
+ 	if (stat != -1){
+ 		set_bitmap(d_bitmap_blk, i);
+ 		bio_write(sb->d_bitmap_blk, dbitmap);
+ 	}
+
+ 	return stat;
+ }
 
 	// Step 3: Update data block bitmap and write to disk
 
@@ -96,29 +110,21 @@ int readi(uint16_t ino, struct inode *inode) {
 
   // Step 1: Get the inode's on-disk block number
 
-	int size = sizeof(struct inode) * ino;
-	int block;
-
-	if (size % BLOCK_SIZE == 0){
-		block = size/BLOCKSIZE;
-	} else {
-		block = size/BLOCKSIZE + 1;
-	}
-
-	block += 3;
+	int block = ino / (BLOCK_SIZE/sizeof(struct inode));
 
   // Step 2: Get offset of the inode in the inode on-disk block
 
-	int offset = size%BLOCKSIZE;
+	int offset = ino % (BLOCK_SIZE/sizeof(struct inode));
 
   // Step 3: Read the block from disk and then copy into inode structure
 
-	struct inode *blk = malloc(BLOCKSIZE);
-	bio_read(block, blk);
+	struct inode *temp = malloc(BLOCK_SIZE);
 
-	//blk[offset] // inode
+	bio_read(block, temp);
 
-	memcpy(blk[offset], inode, sizeof(stuct inode));
+	memcpy(inode, temp[offset], sizeof(struct inode));
+
+	free(temp);
 
 	return 0;
 }
@@ -127,24 +133,21 @@ int writei(uint16_t ino, struct inode *inode) {
 
 	// Step 1: Get the block number where this inode resides on disk
 
-	int size = sizeof(struct inode) * ino;
-	int block;
-
-	if (size % BLOCK_SIZE == 0){
-		block = size/BLOCKSIZE;
-	} else {
-		block = size/BLOCKSIZE + 1;
-	}
-
-	block += 3;
+	int block = ino / (BLOCK_SIZE/sizeof(struct inode));
 
 	// Step 2: Get the offset in the block where this inode resides on disk
 
-	int offset = size%BLOCKSIZE;
+	int offset = ino % (BLOCK_SIZE/sizeof(struct inode));
 
 	// Step 3: Write inode to disk
 
-	bio_write(block, inode);
+	struct inode *temp = malloc(BLOCK_SIZE);
+
+	bio_write(block, temp);
+
+	memcpy(inode, temp[offset], sizeof(struct inode));
+
+	free(temp);
 
 	return 0;
 }
@@ -156,12 +159,22 @@ int writei(uint16_t ino, struct inode *inode) {
  //later
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
 
+	char *fp = strdup(fname);
+	char *bp = basename(fp);
   // Step 1: Call readi() to get the inode using ino (inode number of current directory)
-	struct inode *dir;
-	int status = readi(ino, dir);
+	uint16_t validity = searchFile(inodes[0], inodes[0]->ino, fp);
+
+	if(validity > 0){
+		readi(validity, inodes[ino - 1]);
+		dirent->ino = validity;
+		dirent->valid = 1;
+		strcpy(dirent->name, bp);
+		return 0;
+	}else{
+		return -1;
+	}
 
   // Step 2: Get data block of current directory from inode
-
 
 
   // Step 3: Read directory's data block and check each directory entry.
@@ -216,58 +229,79 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
  */
 int tfs_mkfs() {
 
-	// Call dev_init() to initialize (Create) Diskfile
+ 	// Call dev_init() to initialize (Create) Diskfile
 
-	dev_init(diskfile_path);
+ 	dev_init(diskfile_path);
 
-	// write superblock information
+ 	// write superblock information
 
-	sb = (struct superblock*)calloc(1, BLOCK_SIZE);
+ 	sb = (struct superblock *)calloc(1, BLOCK_SIZE);
+ 	sb->magic_num = MAGIC_NUM;
+ 	sb->max_inum = MAX_INUM;
+ 	sb->max_dnum = MAX_DNUM;
+ 	sb->i_bitmap_blk = 1;
+ 	sb->d_bitmap_blk = 2;
+ 	sb->i_start_blk = 3;
+ 	sb->d_start_blk = sb->i_start_blk + (sizeof(struct inode)*MAX_INUM / BLOCK_SIZE);
 
-	/* sb = (struct superblock*)malloc(BLOCK_SIZE);
+ 	// initialize in memory inodes
 
-	sb->magic_num = MAGIC_NUM;
-	sb->max_inum = MAX_INUM;
-	sb->max_dnum = MAX_DNUM;
+ 	for (int i = 0; i < MAX_INUM; i++){
+ 		inodes[i] = (struct inode)calloc(1, sizeof(struct inode));
+ 		for (int j = 0; j < DIR_PTR; j++){ // invalidate pointers
+ 			inodes[i]->direct_ptr[j] = -1;
+ 			if (j < INDIR_PTR) inodes[i]->indirect_ptr[j] = -1;
+ 		}
+ 	}
 
+ 	// initialize inode bitmap
 
+ 	ibitmap = (bitmap_t)calloc(1, BLOCK_SIZE);
+ 	get_avail_ino(); // sets 0th inode to in use
 
-	// initialize inode bitmap
+ 	// initialize data block bitmap
 
-	i_bitmap = calloc(1, BLOCK_SIZE);  // needs to be edited; diskfile doesnt point to region in memory; logic is correct
+ 	dbitmap = (bitmap_t)calloc(1, BLOCK_SIZE);
 
-	// initialize data block bitmap
+ 	for (i = 0; i < sb->d_start_blk; i++){
+ 		set_bitmap(dbitmap, i); // sets the blocks for sb, bitmaps, inodes, to in use
+ 	}
 
-	d_bitmap = calloc(1, BLOCK_SIZE);
+ 	// update bitmap information for root directory
 
-	set_bitmap(d_bitmap, 0); // setting bitmap for superblock
+ 	int root_node = get_avail_ino(); // 1st inode now in use
 
+ 	// update inode for root directory
 
+	inodes[root_node]->root_node;
+	inodes[root_node]->valid = 1;
+	inodes[root_node]->size = BLOCK_SIZE;
+	inodes[root_node]->type = DIR;
+	inodes[root_node]->link = 2;
+	inodes[root_node]->direct_ptr[0] = get_avail_blkno();
+	inodes[root_node]->vstat.st_atime = time(NULL);
+	inodes[root_node]->vstat.st_mtime = time(NULL);
 
-	//later
-	sb->i_bitmap_blk = get_avail_blkno();
-	sb->d_bitmap_blk = get_avail_blkno();
-	sb->i_start_blk = get_avail_blkno();
-	sb->d_start_blk = 69420;
+	struct dirent *dir = (struct dirent *)calloc(1, BLOCK_SIZE);
+	int maxEntries = BLOCK_SIZE/sizeof(struct dirent);z
 
-	bio_write(0, sb); // write superblock to filesystem; 0th block
+	dir[0].ino = 1;
+	dir[1].ino = 1;
+	dir[2].ino = 1;
+	dir[0].valid = 1;
+	dir[1].valid = 1;
+	dir[2].valid = 1;
+	strcpy(dir[0].name, "/");
+	strcpy(dir[1].name, ".");
+	strcpy(dir[2].name, "..");
 
-	// update bitmap information for root directory
-
-	for (int i = 0; i < MAX_INUM; i++){
-		unset_bitmap(i_bitmap, i);
+	for (int i = 3; i < maxEntries; i++){
+		dir[i].valid = 0;
 	}
-	for (int i = 0; i < MAX_DNUM; i++){
-		unset_bitmap(d_bitmap, i);
-	}
 
-	// still need to set the first inode in bitmap
+	bio_write(inode[root_node]->direct_ptr[0]);
 
-	// update inode for root directory */
-
-
-
-	return 0;
+ 	return 0;
 }
 
 
@@ -284,7 +318,8 @@ static void *tfs_init(struct fuse_conn_info *conn) {
   // and read superblock from disk
 
 	bio_read(0, sb);
-
+	bio_read(1, i_bitmap);
+	bio_read(2, d_bitmap);
 
 	return NULL;
 }
@@ -471,6 +506,117 @@ static int tfs_unlink(const char *path) {
 
 	// Step 6: Call dir_remove() to remove directory entry of target file in its parent directory
 
+	return 0;
+}
+
+char **split(char pn[]){
+
+	int filenameLen = strlen(pn);
+	int slash = 0;
+	int index = 1;
+	int start = -1;
+
+	for(int i = 0; i <= filenameLen; i++){
+		if(pn[i] == '/'){
+			slash++;
+		}
+	}
+
+	char **splitName = (char **)malloc((slash + 2) * sizeof(char *));
+
+	if(strcmp(pn, "/") == 0){
+		splitName[index] = (char *)malloc(2 * sizeof(char));
+		strcpy(splitName[index], "/");
+	}else{
+		for(int j = 0; j <= filenameLen; j++){
+			if(pn[j] == '/'){
+				if(i == 0){
+					splitName[index] = (char *)malloc(2 * sizeof(char));
+					strcpy(splitName[index], "/");
+				}else{
+					int sublen = j - start - 1;
+					 splitName[index] = (char *)malloc((sublen + 1) * sizeof(char));
+					 memcpy(splitName[index], &pn[start + 1], sublen);
+					 splitName[index][sublen] = '\0';
+				}
+				start = j;
+				index++;
+			}
+		}
+	}
+
+	splitName[0] = malloc(11 * sizeof(char));
+	sublen = filenameLen - start;
+	splitName[index] = (char *)malloc((sublen + 1) * sizeof(char));
+	memcpy(splitName[index], &pn[start + 1], sublen);
+	splitName[index][sublen] = '\0';
+
+	return splitname;
+
+}
+
+uint16_t searchFile(struct inode *in, uint16_t ino, char pn[]){
+	double numentries = BLOCK_SIZE/(sizeof(struct dirent));
+	struct dirent *subFandD = (struct dirent *)malloc(BLOCK_SIZE);
+
+	char** splitPath = split(pn);
+	int len = strtod(splitPath[0], NULL);
+	int index = 0;
+	int foundDisk = -1;
+	struct inode found;
+
+	readi(1, &found);
+
+	int DirOff = sb->d_start_blk + found.direct_ptr[0];
+
+	bio_read(DirOff, subFandD);
+
+	if(strcmp(splitPath[len], "/") == 0){
+		return 1;
+	}
+
+	for(;;){
+
+		for(int i = 0; i < DIR_PTR; i++){
+			if(index == len && foundDisk == 0){
+				i = 0;
+				DirOff = sb->d_start_blk + found.direct_ptr[i];
+				bio_read(DirOff, subFandD);
+			}
+			if(found.direct_ptr[i] == -1){
+				continue;
+			}
+			DirOff = sb->d_start_blk + found.direct_ptr[i];
+			bio_read(DirOff, subFandD);
+			foundDisk = -1;
+
+			for(int j = 0; j < numentries; j++){
+				if(subFandD[j].valid == 1){
+					if(strcmp(subFandD[j].name, splitPath[index] == 0){
+						readi(subFandD[j].ino, &found);
+						foundDisk = 0;
+						found.ino = subFandD[j].ino;
+						index++;
+						break;
+					}
+				}
+			}
+			if(foundDisk == -1){
+				continue;
+			}
+			if(index > len){
+				free(subFandD);
+				subFandD == NULL;
+				return found.ino;
+			}
+		}
+		if(foundDisk == -1){
+			break;
+		}
+
+	}
+	free(subFandD);
+	subFandD == NULL;
 	return 0;
 }
 
